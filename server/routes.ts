@@ -4,6 +4,69 @@ import { storage } from "./storage";
 import { searchLocationSchema } from "@shared/schema";
 import { z } from "zod";
 
+// Helper function to check if a taxon is likely a tree
+function isLikelyTree(taxon: any): boolean {
+  if (!taxon) return false;
+  
+  // Common tree families
+  const treeFamilies = [
+    'Fagaceae', 'Pinaceae', 'Aceraceae', 'Betulaceae', 'Rosaceae',
+    'Salicaceae', 'Oleaceae', 'Malvaceae', 'Cupressaceae', 'Juglandaceae',
+    'Ulmaceae', 'Magnoliaceae', 'Platanaceae', 'Hippocastanaceae',
+    'Anacardiaceae', 'Sapindaceae', 'Cornaceae', 'Hamamelidaceae'
+  ];
+  
+  // Check if it belongs to a tree family
+  const ancestors = taxon.ancestors || [];
+  for (const ancestor of ancestors) {
+    if (ancestor.rank === 'family' && treeFamilies.includes(ancestor.name)) {
+      return true;
+    }
+  }
+  
+  // Check current taxon if it's a family
+  if (taxon.rank === 'family' && treeFamilies.includes(taxon.name)) {
+    return true;
+  }
+  
+  // Check common name for tree indicators
+  const commonName = (taxon.preferred_common_name || '').toLowerCase();
+  const treeKeywords = ['tree', 'oak', 'pine', 'maple', 'birch', 'cedar', 'fir', 'spruce', 'elm', 'ash'];
+  
+  return treeKeywords.some(keyword => commonName.includes(keyword));
+}
+
+// Helper function to process taxa in batches with limited concurrency
+async function processTaxaBatch(taxa: any[], batchSize: number = 5): Promise<any[]> {
+  const results = [];
+  
+  for (let i = 0; i < taxa.length; i += batchSize) {
+    const batch = taxa.slice(i, i + batchSize);
+    const batchPromises = batch.map(async (taxon) => {
+      try {
+        const response = await fetch(`https://api.inaturalist.org/v1/taxa/${taxon.id}`);
+        if (!response.ok) return null;
+        
+        const data = await response.json();
+        return data.results?.[0] || null;
+      } catch (error) {
+        console.error(`Error fetching taxon ${taxon.id}:`, error);
+        return null;
+      }
+    });
+    
+    const batchResults = await Promise.all(batchPromises);
+    results.push(...batchResults.filter(result => result !== null));
+    
+    // Small delay between batches to avoid rate limiting
+    if (i + batchSize < taxa.length) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+  
+  return results;
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Search for native tree species by location
   app.post("/api/tree-species/search", async (req, res) => {
@@ -29,7 +92,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         iconic_taxa: 'Plantae',
         rank: 'species',
         quality_grade: 'research',
-        per_page: '20',
+        per_page: '50', // Increased to get more potential trees
         locale: 'en',
         order: 'desc',
         order_by: 'count'
@@ -42,28 +105,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const data = await response.json();
-      const treeSpecies = [];
-
-      // Filter for trees and create our data structure
+      const potentialTrees = [];
+      
+      // First pass: filter for likely trees
       for (const result of data.results || []) {
         const taxon = result.taxon;
-        
-        // Skip if not a tree (basic filtering by checking if it's in Magnoliophyta or Pinophyta)
         if (!taxon || !taxon.name) continue;
         
-        // Get additional details for each species
-        const speciesResponse = await fetch(`https://api.inaturalist.org/v1/taxa/${taxon.id}`);
-        if (!speciesResponse.ok) continue;
-        
-        const speciesData = await speciesResponse.json();
-        const species = speciesData.results?.[0];
-        
+        if (isLikelyTree(taxon)) {
+          potentialTrees.push(taxon);
+        }
+      }
+      
+      // Process trees in batches to get detailed information
+      const detailedSpecies = await processTaxaBatch(potentialTrees.slice(0, 20)); // Limit to 20 for performance
+      const treeSpecies = [];
+
+      // Create our data structure
+      for (const species of detailedSpecies) {
         if (!species) continue;
 
-        // Check if we already have this species
+        // Check if we already have this species cached globally
         const existing = await storage.getTreeSpeciesByExternalId(species.id.toString());
         if (existing) {
-          treeSpecies.push(existing);
+          // Create a new instance with correct location data instead of reusing cached data
+          const locationSpecificSpecies = {
+            ...existing,
+            city,
+            state,
+            id: undefined // This will generate a new ID
+          };
+          
+          const newLocationSpecies = await storage.createTreeSpecies({
+            commonName: existing.commonName,
+            scientificName: existing.scientificName,
+            imageUrl: existing.imageUrl,
+            habitatDescription: existing.habitatDescription,
+            maxHeight: existing.maxHeight,
+            maxAge: existing.maxAge,
+            city,
+            state,
+            externalId: existing.externalId
+          });
+          
+          treeSpecies.push(newLocationSpecies);
           continue;
         }
 
