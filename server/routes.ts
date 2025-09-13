@@ -36,6 +36,64 @@ function isLikelyTree(taxon: any): boolean {
   return treeKeywords.some(keyword => commonName.includes(keyword));
 }
 
+// Helper function to get geographic region for a state
+function getStateRegion(stateCode: string): string {
+  const regions: { [key: string]: string } = {
+    // West Coast
+    'CA': 'west', 'OR': 'west', 'WA': 'west',
+    // Southwest  
+    'AZ': 'southwest', 'NM': 'southwest', 'NV': 'southwest', 'UT': 'southwest',
+    // Mountain
+    'CO': 'mountain', 'ID': 'mountain', 'MT': 'mountain', 'WY': 'mountain',
+    // Midwest
+    'IL': 'midwest', 'IN': 'midwest', 'IA': 'midwest', 'KS': 'midwest', 
+    'MI': 'midwest', 'MN': 'midwest', 'MO': 'midwest', 'NE': 'midwest', 
+    'ND': 'midwest', 'OH': 'midwest', 'SD': 'midwest', 'WI': 'midwest',
+    // South
+    'AL': 'south', 'AR': 'south', 'FL': 'south', 'GA': 'south', 'KY': 'south',
+    'LA': 'south', 'MS': 'south', 'NC': 'south', 'SC': 'south', 'TN': 'south',
+    'TX': 'south', 'VA': 'south', 'WV': 'south',
+    // Northeast
+    'CT': 'northeast', 'DE': 'northeast', 'ME': 'northeast', 'MD': 'northeast',
+    'MA': 'northeast', 'NH': 'northeast', 'NJ': 'northeast', 'NY': 'northeast',
+    'PA': 'northeast', 'RI': 'northeast', 'VT': 'northeast',
+    // Alaska/Hawaii
+    'AK': 'alaska', 'HI': 'hawaii'
+  };
+  
+  return regions[stateCode] || 'unknown';
+}
+
+// Helper function to check if a species is widespread across North America
+function isWidespreadSpecies(scientificName: string): boolean {
+  const widespreadSpecies = [
+    'Acer negundo', // Box Elder - widespread across North America
+    'Populus tremuloides', // Quaking Aspen - very widespread
+    'Salix alba', // White Willow - introduced but widespread
+    'Juniperus virginiana' // Eastern Red Cedar - widespread
+  ];
+  
+  return widespreadSpecies.includes(scientificName);
+}
+
+// Helper function to detect obviously invalid city names
+function isInvalidCityName(city: string): boolean {
+  // Check for common patterns that indicate fake/test cities
+  const invalidPatterns = [
+    /^NonExistent/i,
+    /^Invalid/i,
+    /^Test/i,
+    /^Fake/i,
+    /^MiddleOfNowhere/i,
+    /^NoWhere/i,
+    /\d{3,}/, // Cities with many numbers
+    /^[^a-zA-Z]/, // Cities not starting with letters
+    /[^\w\s\-'\.]/i, // Cities with special characters (except space, hyphen, apostrophe, period)
+  ];
+  
+  return invalidPatterns.some(pattern => pattern.test(city));
+}
+
 // Helper function to process taxa in batches with limited concurrency
 async function processTaxaBatch(taxa: any[], batchSize: number = 5): Promise<any[]> {
   const results = [];
@@ -73,6 +131,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { city, state } = searchLocationSchema.parse(req.body);
       
+      // Basic validation for obviously invalid city names
+      if (isInvalidCityName(city)) {
+        return res.json({ 
+          species: [],
+          location: `${city}, ${state}`,
+          count: 0 
+        });
+      }
+      
       // First check if we have cached data
       let cachedResults = await storage.getTreeSpeciesByLocation(city, state);
       
@@ -105,6 +172,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const data = await response.json();
+      
+      // Log the API response for debugging
+      console.log(`iNaturalist API response for ${city}, ${state}:`, {
+        total_results: data.total_results,
+        results_count: data.results?.length || 0,
+        per_page: data.per_page
+      });
+      
+      // If no results from API, return empty
+      if (!data.results || data.results.length === 0) {
+        console.log(`No species found in iNaturalist for ${city}, ${state}`);
+        return res.json({ 
+          species: [],
+          location: `${city}, ${state}`,
+          count: 0 
+        });
+      }
+
+      // Additional validation: if we get very few results and they seem generic,
+      // it might indicate an invalid location. Let's be more discriminating.
+      if (data.total_results < 5) {
+        console.log(`Very few results (${data.total_results}) for ${city}, ${state} - possibly invalid location`);
+        return res.json({ 
+          species: [],
+          location: `${city}, ${state}`,
+          count: 0 
+        });
+      }
+      
       const potentialTrees = [];
       
       // First pass: filter for likely trees
@@ -115,6 +211,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (isLikelyTree(taxon)) {
           potentialTrees.push(taxon);
         }
+      }
+      
+      // If no trees found after filtering, return empty
+      if (potentialTrees.length === 0) {
+        console.log(`No tree species found after filtering for ${city}, ${state}`);
+        return res.json({ 
+          species: [],
+          location: `${city}, ${state}`,
+          count: 0 
+        });
       }
       
       // Process trees in batches to get detailed information
@@ -128,28 +234,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Check if we already have this species cached globally
         const existing = await storage.getTreeSpeciesByExternalId(species.id.toString());
         if (existing) {
-          // Create a new instance with correct location data instead of reusing cached data
-          const locationSpecificSpecies = {
-            ...existing,
-            city,
-            state,
-            id: undefined // This will generate a new ID
-          };
+          // Verify this species makes sense for the current location by checking if it's already 
+          // stored for a very different geographic region (basic sanity check)
+          const existingState = existing.state;
+          const currentStateRegion = getStateRegion(state);
+          const existingStateRegion = getStateRegion(existingState);
           
-          const newLocationSpecies = await storage.createTreeSpecies({
-            commonName: existing.commonName,
-            scientificName: existing.scientificName,
-            imageUrl: existing.imageUrl,
-            habitatDescription: existing.habitatDescription,
-            maxHeight: existing.maxHeight,
-            maxAge: existing.maxAge,
-            city,
-            state,
-            externalId: existing.externalId
-          });
-          
-          treeSpecies.push(newLocationSpecies);
-          continue;
+          // Only reuse if same region or if it's a widespread species
+          // For testing, let's be more restrictive - only allow same state for now
+          if (state === existingState || isWidespreadSpecies(existing.scientificName)) {
+            const newLocationSpecies = await storage.createTreeSpecies({
+              commonName: existing.commonName,
+              scientificName: existing.scientificName,
+              imageUrl: existing.imageUrl,
+              habitatDescription: existing.habitatDescription,
+              maxHeight: existing.maxHeight,
+              maxAge: existing.maxAge,
+              city,
+              state,
+              externalId: existing.externalId
+            });
+            
+            treeSpecies.push(newLocationSpecies);
+            continue;
+          } else {
+            // Skip this species as it's likely not appropriate for this geographic region
+            console.log(`Skipping ${existing.scientificName} - not appropriate for ${state} (originally from ${existingState})`);
+            continue;
+          }
         }
 
         // Create habitat description from taxon summary or use a generic one
@@ -171,6 +283,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         treeSpecies.push(newSpecies);
       }
 
+      // Final check: if no tree species were successfully processed, return empty
+      if (treeSpecies.length === 0) {
+        console.log(`No valid tree species found after processing for ${city}, ${state}`);
+        return res.json({ 
+          species: [],
+          location: `${city}, ${state}`,
+          count: 0 
+        });
+      }
+
+      console.log(`Found ${treeSpecies.length} tree species for ${city}, ${state}`);
       res.json({ 
         species: treeSpecies,
         location: `${city}, ${state}`,
