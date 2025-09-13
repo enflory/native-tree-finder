@@ -234,34 +234,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Check if we already have this species cached globally
         const existing = await storage.getTreeSpeciesByExternalId(species.id.toString());
         if (existing) {
-          // Verify this species makes sense for the current location by checking if it's already 
-          // stored for a very different geographic region (basic sanity check)
-          const existingState = existing.state;
-          const currentStateRegion = getStateRegion(state);
-          const existingStateRegion = getStateRegion(existingState);
+          // Create a new record for this location using the cached species data
+          // Since iNaturalist returned this species for the current location, 
+          // we can trust that it's native/appropriate for this area
+          const newLocationSpecies = await storage.createTreeSpecies({
+            commonName: existing.commonName,
+            scientificName: existing.scientificName,
+            imageUrl: existing.imageUrl,
+            habitatDescription: existing.habitatDescription,
+            maxHeight: existing.maxHeight,
+            maxAge: existing.maxAge,
+            city,
+            state,
+            externalId: existing.externalId
+          });
           
-          // Only reuse if same region or if it's a widespread species
-          // For testing, let's be more restrictive - only allow same state for now
-          if (state === existingState || isWidespreadSpecies(existing.scientificName)) {
-            const newLocationSpecies = await storage.createTreeSpecies({
-              commonName: existing.commonName,
-              scientificName: existing.scientificName,
-              imageUrl: existing.imageUrl,
-              habitatDescription: existing.habitatDescription,
-              maxHeight: existing.maxHeight,
-              maxAge: existing.maxAge,
-              city,
-              state,
-              externalId: existing.externalId
-            });
-            
-            treeSpecies.push(newLocationSpecies);
-            continue;
-          } else {
-            // Skip this species as it's likely not appropriate for this geographic region
-            console.log(`Skipping ${existing.scientificName} - not appropriate for ${state} (originally from ${existingState})`);
-            continue;
-          }
+          treeSpecies.push(newLocationSpecies);
+          continue;
         }
 
         // Create habitat description from taxon summary or use a generic one
