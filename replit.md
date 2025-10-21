@@ -35,15 +35,17 @@ Preferred communication style: Simple, everyday language.
 - **Authorization**: Middleware-based request authentication
 
 ## External Service Integrations
-- **Biodiversity Data**: iNaturalist API for fetching native plant species data
-- **API Strategy**: External API calls with local caching to reduce API load
-- **Data Processing**: Filtering and transformation of iNaturalist data to focus on tree species
+- **Biodiversity Data**: GBIF (Global Biodiversity Information Facility) API for fetching native tree species occurrence data
+- **Geocoding**: Nominatim (OpenStreetMap) API for converting city/state to geographic coordinates
+- **API Strategy**: External API calls with PostgreSQL caching to improve performance and reduce API load
+- **Data Processing**: Multi-stage filtering pipeline that extracts tree species from GBIF occurrences, filters for native species only (using establishmentMeans), and fetches detailed species information including common names, images, and descriptions
 
 # External Dependencies
 
 ## Third-Party Services
-- **iNaturalist API**: Primary data source for species information and biodiversity data
-- **Neon Database**: Serverless PostgreSQL hosting for production data storage
+- **GBIF API**: Primary data source for species occurrence data and biodiversity information across US states
+- **Nominatim (OpenStreetMap)**: Free geocoding service for converting city/state locations to latitude/longitude coordinates
+- **Neon Database**: Serverless PostgreSQL hosting for production data storage and species caching
 
 ## Key Libraries and Frameworks
 - **Database**: Drizzle ORM with PostgreSQL driver (@neondatabase/serverless)
