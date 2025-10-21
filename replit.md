@@ -38,7 +38,13 @@ Preferred communication style: Simple, everyday language.
 - **Biodiversity Data**: GBIF (Global Biodiversity Information Facility) API for fetching native tree species occurrence data
 - **Geocoding**: Nominatim (OpenStreetMap) API for converting city/state to geographic coordinates
 - **API Strategy**: External API calls with PostgreSQL caching to improve performance and reduce API load
-- **Data Processing**: Multi-stage filtering pipeline that extracts tree species from GBIF occurrences, filters for native species only (using establishmentMeans), and fetches detailed species information including common names, images, and descriptions
+- **Data Processing**: Multi-stage filtering pipeline:
+  1. **Tree Filtering**: Removes non-tree species (shrubs, herbs, vines) using family exclusions, keyword detection, and tree-positive genera
+  2. **Native Filtering**: Uses GBIF establishmentMeans data with balanced majority-vote logic (>50% native OR <20% introduced) combined with an invasive species blocklist
+  3. **Blocklist**: Explicitly filters out 11 known invasive ornamentals (Cherry Laurel, Portugal Laurel, Tree of Heaven, Bradford Pear, Mimosa, Chinese Tallow, etc.) that have incomplete GBIF establishment data
+  4. **Species Details**: Fetches detailed information including common names, images, and habitat descriptions from GBIF species API
+  
+**Native Filtering Strategy**: Due to poor GBIF establishmentMeans data quality (most species have 100% UNKNOWN data), the application uses a balanced approach: (1) Include species with >50% native occurrences, OR (2) Include species with <20% introduced occurrences (giving benefit of doubt to UNKNOWN data), while (3) Using a canonical-name blocklist to catch known invasive ornamentals that slip through
 
 # External Dependencies
 
