@@ -130,6 +130,13 @@ async function getGBIFSpeciesDetails(speciesKey: number): Promise<any | null> {
       }
     }
     
+    // Extract description text safely
+    let description = null;
+    if (speciesData.descriptions && speciesData.descriptions.length > 0) {
+      const descObj = speciesData.descriptions[0];
+      description = descObj.description || descObj.value || null;
+    }
+
     return {
       speciesKey,
       scientificName: speciesData.canonicalName || speciesData.scientificName,
@@ -137,7 +144,7 @@ async function getGBIFSpeciesDetails(speciesKey: number): Promise<any | null> {
       family: speciesData.family,
       genus: speciesData.genus,
       imageUrl,
-      description: speciesData.descriptions?.[0] || null
+      description
     };
   } catch (error) {
     console.error(`Error fetching GBIF species details for ${speciesKey}:`, error);
@@ -270,6 +277,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       for (const occurrence of data.results) {
         if (!occurrence.speciesKey || !occurrence.scientificName) continue;
+        
+        // Filter for native species only
+        // GBIF establishment means: NATIVE, INTRODUCED, NATURALISED, INVASIVE, MANAGED, UNCERTAIN
+        const establishmentMeans = occurrence.establishmentMeans;
+        if (establishmentMeans && establishmentMeans !== 'NATIVE') {
+          continue; // Skip non-native species
+        }
         
         const scientificName = occurrence.scientificName;
         const family = occurrence.family || null;
