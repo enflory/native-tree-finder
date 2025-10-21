@@ -330,6 +330,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const family = occurrence.family || null;
         const vernacularName = occurrence.vernacularName || null;
         
+        // Debug logging for laurel species
+        if (scientificName.toLowerCase().includes('prunus') || vernacularName?.toLowerCase().includes('laurel')) {
+          console.log(`NATIVE species found: ${scientificName} (${vernacularName}) - establishmentMeans: ${establishmentMeans}`);
+        }
+        
         // Check if this is likely a tree
         if (!isLikelyTree(scientificName, family, vernacularName)) {
           continue;
