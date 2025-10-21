@@ -215,16 +215,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`Coordinates for ${city}, ${state}: ${coords.lat}, ${coords.lon}`);
 
-      // Search for plant occurrences in GBIF within ~50km radius
+      // Get state name mapping
+      const stateNames: { [key: string]: string } = {
+        'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas', 'CA': 'California',
+        'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware', 'FL': 'Florida', 'GA': 'Georgia',
+        'HI': 'Hawaii', 'ID': 'Idaho', 'IL': 'Illinois', 'IN': 'Indiana', 'IA': 'Iowa',
+        'KS': 'Kansas', 'KY': 'Kentucky', 'LA': 'Louisiana', 'ME': 'Maine', 'MD': 'Maryland',
+        'MA': 'Massachusetts', 'MI': 'Michigan', 'MN': 'Minnesota', 'MS': 'Mississippi', 'MO': 'Missouri',
+        'MT': 'Montana', 'NE': 'Nebraska', 'NV': 'Nevada', 'NH': 'New Hampshire', 'NJ': 'New Jersey',
+        'NM': 'New Mexico', 'NY': 'New York', 'NC': 'North Carolina', 'ND': 'North Dakota', 'OH': 'Ohio',
+        'OK': 'Oklahoma', 'OR': 'Oregon', 'PA': 'Pennsylvania', 'RI': 'Rhode Island', 'SC': 'South Carolina',
+        'SD': 'South Dakota', 'TN': 'Tennessee', 'TX': 'Texas', 'UT': 'Utah', 'VT': 'Vermont',
+        'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia', 'WI': 'Wisconsin', 'WY': 'Wyoming'
+      };
+
+      const stateName = stateNames[state] || state;
+
+      // Search for plant occurrences in GBIF using state and coordinates
       const gbifUrl = 'https://api.gbif.org/v1/occurrence/search';
       const params = new URLSearchParams({
-        decimalLatitude: coords.lat.toString(),
-        decimalLongitude: coords.lon.toString(),
+        country: 'US',
+        stateProvince: stateName,
         kingdomKey: '6', // Plantae
         hasCoordinate: 'true',
-        limit: '300', // Get more results
-        country: 'US' // Focus on US species
+        limit: '300'
       });
+
+      console.log(`Searching GBIF for ${city}, ${stateName}...`);
 
       const response = await fetch(`${gbifUrl}?${params}`);
       
