@@ -318,11 +318,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       for (const occurrence of data.results) {
         if (!occurrence.speciesKey || !occurrence.scientificName) continue;
         
-        // Filter for native species only
+        // Filter for native species only - strict mode
         // GBIF establishment means: NATIVE, INTRODUCED, NATURALISED, INVASIVE, MANAGED, UNCERTAIN
+        // Only accept species explicitly marked as NATIVE (reject undefined/null/non-native)
         const establishmentMeans = occurrence.establishmentMeans;
-        if (establishmentMeans && establishmentMeans !== 'NATIVE') {
-          continue; // Skip non-native species
+        if (establishmentMeans !== 'NATIVE') {
+          continue; // Skip species that aren't explicitly marked as native
         }
         
         const scientificName = occurrence.scientificName;
