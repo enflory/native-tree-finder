@@ -40,16 +40,34 @@ async function geocodeCityState(city: string, state: string): Promise<{ lat: num
 }
 
 // Common tree families to filter GBIF results
+// Note: Only including families that are predominantly trees, excluding families with many shrubs/herbs
 const TREE_FAMILIES = [
-  'Fagaceae', 'Pinaceae', 'Aceraceae', 'Betulaceae', 'Rosaceae',
-  'Salicaceae', 'Oleaceae', 'Malvaceae', 'Cupressaceae', 'Juglandaceae',
-  'Ulmaceae', 'Magnoliaceae', 'Platanaceae', 'Hippocastanaceae',
-  'Anacardiaceae', 'Sapindaceae', 'Cornaceae', 'Hamamelidaceae',
-  'Fabaceae', 'Taxaceae', 'Taxodiaceae', 'Araucariaceae'
+  'Fagaceae', 'Pinaceae', 'Aceraceae', 'Betulaceae',
+  'Salicaceae', 'Cupressaceae', 'Juglandaceae',
+  'Ulmaceae', 'Magnoliaceae', 'Platanaceae',
+  'Taxaceae', 'Taxodiaceae', 'Araucariaceae'
 ];
 
 // Helper function to check if a GBIF taxon is likely a tree
 function isLikelyTree(scientificName: string, family: string | null, vernacularName: string | null): boolean {
+  // First, check for exclusion keywords that indicate non-trees
+  if (vernacularName) {
+    const lowerName = vernacularName.toLowerCase();
+    const exclusionKeywords = [
+      'shrub', 'bush', 'herb', 'vine', 'grass', 'fern', 'moss',
+      'sedge', 'rush', 'bramble', 'berry', 'weed', 'flower',
+      'dewberry', 'raspberry', 'blackberry', 'strawberry', 'rose',
+      'avens', 'mallow', 'cinquefoil', 'clover', 'vetch',
+      'goosefoot', 'chickweed', 'knotweed', 'smartweed', 'pigweed',
+      'amaranth', 'plantain', 'purslane', 'lambsquarters', 'nettle'
+    ];
+    
+    // If the common name contains exclusion keywords, it's not a tree
+    if (exclusionKeywords.some(keyword => lowerName.includes(keyword))) {
+      return false;
+    }
+  }
+  
   // Check if it belongs to a known tree family
   if (family && TREE_FAMILIES.includes(family)) {
     return true;
@@ -58,15 +76,30 @@ function isLikelyTree(scientificName: string, family: string | null, vernacularN
   // Check common name for tree indicators
   if (vernacularName) {
     const lowerName = vernacularName.toLowerCase();
-    const treeKeywords = ['tree', 'oak', 'pine', 'maple', 'birch', 'cedar', 'fir', 'spruce', 'elm', 'ash', 'willow', 'poplar', 'aspen', 'redwood', 'sequoia'];
+    const treeKeywords = [
+      'tree', 'oak', 'pine', 'maple', 'birch', 'cedar', 'fir', 
+      'spruce', 'elm', 'ash', 'willow', 'poplar', 'aspen', 
+      'redwood', 'sequoia', 'cypress', 'juniper', 'hemlock',
+      'hickory', 'walnut', 'beech', 'sycamore', 'magnolia',
+      'cottonwood', 'basswood', 'linden', 'dogwood', 'buckeye',
+      'hornbeam', 'hop-hornbeam'
+    ];
     if (treeKeywords.some(keyword => lowerName.includes(keyword))) {
       return true;
     }
   }
   
-  // Check scientific name
+  // Check scientific name for known tree genera
   if (scientificName) {
-    const knownTreeGenera = ['Quercus', 'Pinus', 'Acer', 'Betula', 'Salix', 'Populus', 'Fraxinus', 'Ulmus', 'Fagus', 'Picea', 'Abies', 'Tsuga', 'Sequoia'];
+    const knownTreeGenera = [
+      'Quercus', 'Pinus', 'Acer', 'Betula', 'Salix', 'Populus', 
+      'Fraxinus', 'Ulmus', 'Fagus', 'Picea', 'Abies', 'Tsuga', 
+      'Sequoia', 'Juniperus', 'Carya', 'Platanus', 'Magnolia',
+      'Cornus', 'Tilia', 'Liquidambar', 'Nyssa', 'Ostrya',
+      'Carpinus', 'Taxodium', 'Larix', 'Pseudotsuga', 'Thuja',
+      'Chamaecyparis', 'Cedrus', 'Robinia', 'Gleditsia', 'Juglans',
+      'Aesculus', 'Liriodendron', 'Catalpa'
+    ];
     const genus = scientificName.split(' ')[0];
     if (knownTreeGenera.includes(genus)) {
       return true;
@@ -332,6 +365,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Create our data structure
       for (const species of detailedSpecies) {
         if (!species || !species.scientificName) continue;
+
+        // Apply tree filtering again on the detailed common name
+        // (common names from species API may differ from occurrence vernacular names)
+        if (!isLikelyTree(species.scientificName, species.family, species.commonName)) {
+          console.log(`Filtering out non-tree: ${species.commonName} (${species.scientificName})`);
+          continue;
+        }
 
         // Check if we already have this species cached
         const existing = await storage.getTreeSpeciesByExternalId(species.speciesKey.toString());
