@@ -55,15 +55,20 @@ function isLikelyTree(scientificName: string, family: string | null, vernacularN
     const lowerName = vernacularName.toLowerCase();
     const exclusionKeywords = [
       'shrub', 'bush', 'herb', 'vine', 'grass', 'fern', 'moss',
-      'sedge', 'rush', 'bramble', 'berry', 'weed', 'flower',
-      'dewberry', 'raspberry', 'blackberry', 'strawberry', 'rose',
+      'sedge', 'rush', 'bramble', 'weed', 'flower',
+      'dewberry', 'raspberry', 'blackberry', 'strawberry', 'blueberry', 'cranberry', 
+      'huckleberry', 'gooseberry', 'elderberry', 'currant', 'rose',
       'avens', 'mallow', 'cinquefoil', 'clover', 'vetch',
       'goosefoot', 'chickweed', 'knotweed', 'smartweed', 'pigweed',
       'amaranth', 'plantain', 'purslane', 'lambsquarters', 'nettle'
     ];
     
-    // If the common name contains exclusion keywords, it's not a tree
-    if (exclusionKeywords.some(keyword => lowerName.includes(keyword))) {
+    // Tree exceptions - these contain exclusion keywords but are actual trees
+    const treeExceptions = ['cherry', 'hackberry', 'mulberry', 'serviceberry', 'chokeberry'];
+    const hasTreeException = treeExceptions.some(exception => lowerName.includes(exception));
+    
+    // If the common name contains exclusion keywords (and isn't a tree exception), it's not a tree
+    if (!hasTreeException && exclusionKeywords.some(keyword => lowerName.includes(keyword))) {
       return false;
     }
   }
@@ -82,7 +87,8 @@ function isLikelyTree(scientificName: string, family: string | null, vernacularN
       'redwood', 'sequoia', 'cypress', 'juniper', 'hemlock',
       'hickory', 'walnut', 'beech', 'sycamore', 'magnolia',
       'cottonwood', 'basswood', 'linden', 'dogwood', 'buckeye',
-      'hornbeam', 'hop-hornbeam'
+      'hornbeam', 'hop-hornbeam', 'cherry', 'hackberry', 'mulberry',
+      'serviceberry', 'chokeberry', 'hawthorn', 'crabapple'
     ];
     if (treeKeywords.some(keyword => lowerName.includes(keyword))) {
       return true;
@@ -98,7 +104,8 @@ function isLikelyTree(scientificName: string, family: string | null, vernacularN
       'Cornus', 'Tilia', 'Liquidambar', 'Nyssa', 'Ostrya',
       'Carpinus', 'Taxodium', 'Larix', 'Pseudotsuga', 'Thuja',
       'Chamaecyparis', 'Cedrus', 'Robinia', 'Gleditsia', 'Juglans',
-      'Aesculus', 'Liriodendron', 'Catalpa'
+      'Aesculus', 'Liriodendron', 'Catalpa', 'Prunus', 'Celtis',
+      'Morus', 'Amelanchier', 'Sorbus', 'Malus', 'Pyrus', 'Crataegus'
     ];
     const genus = scientificName.split(' ')[0];
     if (knownTreeGenera.includes(genus)) {
