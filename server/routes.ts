@@ -313,51 +313,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Extract unique tree species from occurrences
-      const uniqueTreeSpecies = new Map<number, { scientificName: string; family: string | null; vernacularName: string | null; count: number }>();
+      // Track establishment means for each species across all occurrences (majority vote approach)
+      const uniqueTreeSpecies = new Map<number, { 
+        scientificName: string; 
+        family: string | null; 
+        vernacularName: string | null; 
+        count: number;
+        establishmentCounts: Map<string, number>;
+      }>();
       
       for (const occurrence of data.results) {
         if (!occurrence.speciesKey || !occurrence.scientificName) continue;
-        
-        // Filter for native species only - strict mode
-        // GBIF establishment means: NATIVE, INTRODUCED, NATURALISED, INVASIVE, MANAGED, UNCERTAIN
-        // Only accept species explicitly marked as NATIVE (reject undefined/null/non-native)
-        const establishmentMeans = occurrence.establishmentMeans;
-        if (establishmentMeans !== 'NATIVE') {
-          continue; // Skip species that aren't explicitly marked as native
-        }
         
         const scientificName = occurrence.scientificName;
         const family = occurrence.family || null;
         const vernacularName = occurrence.vernacularName || null;
         
-        // Debug logging for laurel species
-        if (scientificName.toLowerCase().includes('prunus') || vernacularName?.toLowerCase().includes('laurel')) {
-          console.log(`NATIVE species found: ${scientificName} (${vernacularName}) - establishmentMeans: ${establishmentMeans}`);
-        }
-        
-        // Check if this is likely a tree
+        // Check if this is likely a tree (do this early to skip non-trees)
         if (!isLikelyTree(scientificName, family, vernacularName)) {
           continue;
         }
         
-        // Track unique species and their occurrence counts
+        const establishmentMeans = occurrence.establishmentMeans || 'UNKNOWN';
+        
+        // Track unique species and their establishment means counts
         if (uniqueTreeSpecies.has(occurrence.speciesKey)) {
           const existing = uniqueTreeSpecies.get(occurrence.speciesKey)!;
           existing.count += 1;
+          
+          // Increment establishment means count
+          const currentCount = existing.establishmentCounts.get(establishmentMeans) || 0;
+          existing.establishmentCounts.set(establishmentMeans, currentCount + 1);
         } else {
+          const establishmentCounts = new Map<string, number>();
+          establishmentCounts.set(establishmentMeans, 1);
+          
           uniqueTreeSpecies.set(occurrence.speciesKey, {
             scientificName,
             family,
             vernacularName,
-            count: 1
+            count: 1,
+            establishmentCounts
           });
         }
       }
 
-      console.log(`Found ${uniqueTreeSpecies.size} unique tree species in ${city}, ${state}`);
+      console.log(`Found ${uniqueTreeSpecies.size} tree species before native filtering in ${city}, ${state}`);
 
-      if (uniqueTreeSpecies.size === 0) {
-        console.log(`No tree species found after filtering for ${city}, ${state}`);
+      // Filter species based on majority vote of establishment means
+      // Only keep species where:
+      // - Majority are NATIVE, OR
+      // - Majority are UNKNOWN (no data) and none are explicitly invasive
+      // Reject species where majority are INTRODUCED, INVASIVE, or NATURALISED
+      const nativeTreeSpecies = new Map<number, { scientificName: string; family: string | null; vernacularName: string | null; count: number }>();
+      
+      for (const [speciesKey, species] of Array.from(uniqueTreeSpecies.entries())) {
+        const totalOccurrences = species.count;
+        const nativeCount = species.establishmentCounts.get('NATIVE') || 0;
+        const unknownCount = species.establishmentCounts.get('UNKNOWN') || 0;
+        const introducedCount = (species.establishmentCounts.get('INTRODUCED') || 0) + 
+                                (species.establishmentCounts.get('INVASIVE') || 0) + 
+                                (species.establishmentCounts.get('NATURALISED') || 0);
+        
+        // Calculate percentages
+        const nativePercent = nativeCount / totalOccurrences;
+        const introducedPercent = introducedCount / totalOccurrences;
+        
+        // Decision logic:
+        // 1. If >50% are NATIVE, include it
+        // 2. If >50% are INTRODUCED/INVASIVE, exclude it
+        // 3. If mostly UNKNOWN with <20% introduced, include it (benefit of the doubt)
+        const shouldInclude = nativePercent > 0.5 || 
+                             (introducedPercent < 0.2 && unknownCount > 0);
+        
+        if (shouldInclude) {
+          nativeTreeSpecies.set(speciesKey, {
+            scientificName: species.scientificName,
+            family: species.family,
+            vernacularName: species.vernacularName,
+            count: species.count
+          });
+        } else {
+          console.log(`Filtering out non-native: ${species.scientificName} (NATIVE: ${nativePercent.toFixed(1)}%, INTRODUCED: ${introducedPercent.toFixed(1)}%)`);
+        }
+      }
+
+      console.log(`Found ${nativeTreeSpecies.size} native tree species in ${city}, ${state}`);
+
+      if (nativeTreeSpecies.size === 0) {
+        console.log(`No native tree species found after filtering for ${city}, ${state}`);
         return res.json({ 
           species: [],
           location: `${city}, ${state}`,
@@ -366,7 +410,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Sort by occurrence count and take top 15
-      const sortedSpecies = Array.from(uniqueTreeSpecies.entries())
+      const sortedSpecies = Array.from(nativeTreeSpecies.entries())
         .sort((a, b) => b[1].count - a[1].count)
         .slice(0, 15)
         .map(([key, _]) => key);
