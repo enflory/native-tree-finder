@@ -144,16 +144,45 @@ async function getGBIFSpeciesDetails(speciesKey: number): Promise<any | null> {
     
     const speciesData = await speciesResponse.json();
     
-    // Get vernacular (common) names
-    const vernacularResponse = await fetch(`https://api.gbif.org/v1/species/${speciesKey}/vernacularNames`);
+    // Get vernacular (common) names (request more results to find authoritative sources)
+    const vernacularResponse = await fetch(`https://api.gbif.org/v1/species/${speciesKey}/vernacularNames?limit=100`);
     let commonName = speciesData.canonicalName || speciesData.scientificName;
     
     if (vernacularResponse.ok) {
       const vernacularData = await vernacularResponse.json();
-      // Prefer English common names
-      const englishName = vernacularData.results?.find((v: any) => v.language === 'eng');
-      if (englishName) {
-        commonName = englishName.vernacularName;
+      const englishNames = vernacularData.results?.filter((v: any) => v.language === 'eng') || [];
+      
+      if (englishNames.length > 0) {
+        // Prioritize US/Canada authoritative botanical sources for accurate common names
+        // GBIF vernacular names come from many sources with varying quality/regional preferences
+        // This 3-tier prioritization ensures we get standard US common names
+        
+        // Tier 1: Authoritative US/Canadian botanical databases (case-insensitive matching)
+        const authoritativeSources = [
+          'grin taxonomy',                  // USDA Germplasm Resources Information Network
+          'integrated taxonomic',           // ITIS (matches "Integrated Taxonomic Information System")
+          'usda',                           // Any USDA source (catches "USDA NRCS PLANTS Database", etc.)
+          'flora of north america',         // Flora of North America Editorial Committee
+          'database of vascular plants of canada' // VASCAN (Canadian authority, relevant for northern US)
+        ];
+        
+        // Tier 1: Authoritative botanical sources (case-insensitive substring matching)
+        let bestName = englishNames.find((v: any) => {
+          const sourceLower = v.source?.toLowerCase() || '';
+          return authoritativeSources.some(auth => sourceLower.includes(auth));
+        });
+        
+        // Tier 2: Names explicitly marked for US country
+        if (!bestName) {
+          bestName = englishNames.find((v: any) => v.country === 'US');
+        }
+        
+        // Tier 3: Any English name (fallback to first available)
+        if (!bestName) {
+          bestName = englishNames[0];
+        }
+        
+        commonName = bestName.vernacularName;
       }
     }
     

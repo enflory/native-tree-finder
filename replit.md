@@ -43,6 +43,10 @@ Preferred communication style: Simple, everyday language.
   2. **Native Filtering**: Uses GBIF establishmentMeans data with balanced majority-vote logic (>50% native OR <20% introduced) combined with an invasive species blocklist
   3. **Blocklist**: Explicitly filters out 11 known invasive ornamentals (Cherry Laurel, Portugal Laurel, Tree of Heaven, Bradford Pear, Mimosa, Chinese Tallow, etc.) that have incomplete GBIF establishment data
   4. **Species Details**: Fetches detailed information including common names, images, and habitat descriptions from GBIF species API
+  5. **Common Name Selection**: Uses 3-tier prioritization to select standard US common names from GBIF's 100+ vernacular names per species:
+     - Tier 1: Authoritative US/Canadian botanical sources (GRIN Taxonomy, ITIS, USDA, Flora of North America, VASCAN)
+     - Tier 2: Names explicitly marked for US country
+     - Tier 3: Any English name (fallback)
   
 **Native Filtering Strategy**: Due to poor GBIF establishmentMeans data quality (most species have 100% UNKNOWN data), the application uses a balanced approach: (1) Include species with >50% native occurrences, OR (2) Include species with <20% introduced occurrences (giving benefit of doubt to UNKNOWN data), while (3) Using a canonical-name blocklist to catch known invasive ornamentals that slip through
 
